@@ -180,6 +180,9 @@ app.get('/api/appointments/user/:userId', async (req, res) => {
       });
     }
 
+    // DELETE API: Delete user by ID
+
+
     // স্ট্যাটাস ও টাইমস্ট্যাম্পসহ ডাটা ইনসার্ট
     const finalPayload = {
       ...appointmentData,
@@ -193,6 +196,106 @@ app.get('/api/appointments/user/:userId', async (req, res) => {
   } catch (error) {
     console.error("Error inserting appointment:", error);
     res.status(500).json({ error: "Failed to insert appointment" });
+  }
+});
+
+
+app.delete('/api/users/:id', async (req, res) => {
+   const id = req.params.id;
+   console.log("ID ASCHE ", id)
+  try {
+    
+
+    console.log("ID from params:", id);
+    console.log("Is valid:", ObjectId.isValid(id));
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        error: "Invalid ObjectId format"
+      });
+    }
+
+    const query = {
+      _id: new ObjectId(id)
+    };
+
+    console.log("Delete query:", query);
+
+    const result = await usersCollection.deleteOne(query);
+
+    console.log("Delete result:", result);
+
+    if (result.deletedCount === 1) {
+      return res.status(200).json({
+        success: true,
+        message: "User deleted"
+      });
+    }
+
+    return res.status(404).json({
+      error: "User not found in database"
+    });
+
+  } catch (error) {
+    console.error("Delete error:", error);
+
+    res.status(500).json({
+      error: "Server error during delete"
+    });
+  }
+});
+
+// DELETE API: Delete Doctor by ID
+app.delete('/api/doctors/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id || !ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "Invalid Doctor ID" });
+    }
+
+    const query = { _id: new ObjectId(id) };
+    const result = await doctorsCollection.deleteOne(query);
+
+    if (result.deletedCount === 1) {
+      res.status(200).json({ success: true, message: "Doctor deleted successfully" });
+    } else {
+      res.status(404).json({ error: "Doctor not found" });
+    }
+  } catch (error) {
+    console.error("Error deleting doctor:", error);
+    res.status(500).json({ error: "Failed to delete doctor" });
+  }
+});
+
+
+// edit related apis 
+app.patch('/api/doctors/:id/verify', async (req, res) => {
+  console.log("CAll hoccha")
+  try {
+    const id = req.params.id;
+    const { verificationStatus } = req.body; // e.g., "true" or "false"
+
+    if (!id || !ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "Invalid Doctor ID" });
+    }
+
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = {
+      $set: {
+        verificationStatus: String(verificationStatus), // String হিসেবে সেভ হবে
+      },
+    };
+
+    const result = await doctorsCollection.updateOne(filter, updateDoc);
+
+    if (result.modifiedCount === 1 || result.matchedCount === 1) {
+      res.status(200).json({ success: true, message: "Status updated successfully" });
+    } else {
+      res.status(404).json({ error: "Doctor not found" });
+    }
+  } catch (error) {
+    console.error("Error updating status:", error);
+    res.status(500).json({ error: "Failed to update verification status" });
   }
 });
     // Ping check
