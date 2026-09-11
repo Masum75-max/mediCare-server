@@ -80,6 +80,37 @@ app.get('/api/doctors/featured', async (req, res) => {
   }
 });
 
+// GET API: Fetch reviews by userId
+app.get('/api/reviews/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const cleanUserId = userId.trim();
+
+    // userId ডাটাবেজে String হিসেবে থাকলে direct filter, ObjectId হিসেবে থাকলে dynamic match
+    const filter = {
+      $or: [
+        { userId: cleanUserId },
+        { userId: ObjectId.isValid(cleanUserId) ? new ObjectId(cleanUserId) : cleanUserId }
+      ]
+    };
+
+    const reviews = await reviewsCollection
+      .find(filter)
+      .sort({ createdAt: -1 }) // নতুন রিভিউগুলো আগে দেখাবে
+      .toArray();
+
+    res.status(200).json(reviews);
+  } catch (error) {
+    console.error("Error fetching user reviews:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch reviews" });
+  }
+});
+
     
    // GET API: Search & Filter Doctors
 app.get('/api/doctors', async (req, res) => {
@@ -244,6 +275,32 @@ app.post('/api/prescriptions', async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 });
+
+// POST API: Insert Review
+app.post('/api/reviews', async (req, res) => {
+  try {
+    const { appointmentId, doctorId, userId, rating, reviewText } = req.body;
+
+    if (!appointmentId || !doctorId || !userId || !rating || !reviewText) {
+      return res.status(400).json({ success: false, message: "All fields are required" });
+    }
+
+    const newReview = {
+      appointmentId,
+      doctorId,
+      userId,
+      rating: Number(rating),
+      reviewText,
+      createdAt: new Date(),
+    };
+
+    const result = await reviewsCollection.insertOne(newReview);
+    res.status(201).json({ success: true, message: "Review submitted successfully!", reviewId: result.insertedId });
+  } catch (error) {
+    console.error("Error creating review:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
     // POST API: Insert doctor data
     app.post('/api/doctors', async (req, res) => {
       try {
@@ -344,6 +401,29 @@ app.delete('/api/users/:id', async (req, res) => {
     res.status(500).json({
       error: "Server error during delete"
     });
+  }
+});
+
+// DELETE API: Delete Review by ID
+app.delete('/api/reviews/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid Review ID" });
+    }
+
+    const query = { _id: new ObjectId(id) };
+    const result = await reviewsCollection.deleteOne(query);
+
+    if (result.deletedCount === 1) {
+      res.status(200).json({ success: true, message: "Review deleted successfully" });
+    } else {
+      res.status(404).json({ success: false, message: "Review not found" });
+    }
+  } catch (error) {
+    console.error("Error deleting review:", error);
+    res.status(500).json({ success: false, message: "Failed to delete review" });
   }
 });
 
@@ -473,6 +553,40 @@ app.patch('/api/doctors/update-profile/:userId', async (req, res) => {
   }
 });
 
+// PATCH API: Reschedule/Update Appointment Date and Time
+app.patch('/api/appointments/reschedule/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, time } = req.body;
+
+    if (!date || !time) {
+      return res.status(400).json({ success: false, message: "Date and Time are required" });
+    }
+
+    const filter = {
+      $or: [
+        { _id: id },
+        { _id: ObjectId.isValid(id) ? new ObjectId(id) : id }
+      ]
+    };
+
+    const updateDoc = {
+      $set: { date, time, updatedAt: new Date() }
+    };
+
+    const result = await appointmentsCollection.updateOne(filter, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Appointment not found" });
+    }
+
+    res.status(200).json({ success: true, message: "Appointment rescheduled successfully!" });
+  } catch (error) {
+    console.error("Error rescheduling appointment:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
+
 // UPDATE Appointment Status
 app.patch('/api/appointments/status/:id', async (req, res) => {
   try {
@@ -502,6 +616,41 @@ app.patch('/api/appointments/status/:id', async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 });
+app.patch('/api/reviews/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rating, reviewText } = req.body;
+
+    if (!rating || !reviewText) {
+      return res.status(400).json({ success: false, message: "Rating and review text are required" });
+    }
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid Review ID" });
+    }
+
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = {
+      $set: {
+        rating: Number(rating),
+        reviewText,
+        updatedAt: new Date(),
+      },
+    };
+
+    const result = await reviewsCollection.updateOne(filter, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Review not found" });
+    }
+
+    res.status(200).json({ success: true, message: "Review updated successfully!" });
+  } catch (error) {
+    console.error("Error updating review:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
+
     // Ping check
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. Connected to MongoDB!");
