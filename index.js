@@ -30,6 +30,7 @@ async function run() {
     const doctorsCollection = database.collection("doctors");
     const appointmentsCollection = database.collection("appointments");
     const reviewsCollection = database.collection("reviews");
+    const prescriptionsCollection = database.collection("prescriptions")
 
     // Root route for testing
     app.get('/', (req, res) => {
@@ -143,6 +144,106 @@ app.get('/api/appointments/user/:userId', async (req, res) => {
     res.status(500).json({ error: "Failed to fetch appointments" });
   }
 });
+app.get('/api/appointments/doctor/:doctorId', async (req, res) => {
+  try {
+    const doctorId = req.params.doctorId;
+
+    if (!doctorId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+
+    // 🔴 userId অনুযায়ী ডাটাবেজ থেকে অ্যাপয়েন্টমেন্ট বের করা
+    // আপনার ডকুমেন্টে যদি ফিল্ডের নাম 'userId' বা 'applicantId' থাকে সে অনুযায়ী ফিল্টার হবে
+    const appointments = await appointmentsCollection
+      .find({ 
+        $or: [{ doctorId: doctorId }, { applicantId: doctorId }] 
+      })
+      .sort({ _id: -1 }) // নতুন অ্যাপয়েন্টমেন্টগুলো আগে দেখানোর জন্য
+      .toArray();
+
+    res.status(200).json(appointments);
+  } catch (error) {
+    console.error("Error fetching appointments for user:", error);
+    res.status(500).json({ error: "Failed to fetch appointments" });
+  }
+});
+
+
+
+// get api: get Doctor by userId
+
+// GET Doctor details by userId
+app.get('/api/doctors/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    console.log("ASCE TO:", userId);
+
+    // Trim করে অতিরিক্ত স্পেস ফেলে দেওয়া
+    const cleanUserId = userId ? userId.trim() : "";
+
+    // Exact String match + Case/Whitespace insensitive Regex
+    const doctor = await doctorsCollection.findOne({
+      userId: { $regex: `^${cleanUserId}$`, $options: "i" }
+    });
+
+    console.log("FOUND DOCTOR:", doctor);
+
+    if (!doctor) {
+      return res.status(404).json({ success: false, message: "Doctor not found" });
+    }
+
+    res.status(200).json({ success: true, doctor });
+  } catch (error) {
+    console.error("Error fetching doctor by userId:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
+
+// POST /api/prescriptions
+app.post('/api/prescriptions', async (req, res) => {
+
+  console.log("Hit khaise")
+  try {
+    const { appointmentId, doctorId, userId, prescriptionText } = req.body;
+
+    if (!appointmentId || !doctorId || !userId || !prescriptionText) {
+      return res.status(400).json({ success: false, message: "Required fields are missing" });
+    }
+
+    // ১. prescriptionCollection-এ ডাটা ইনসার্ট করা
+    const newPrescription = {
+      appointmentId,
+      doctorId,
+      userId,
+      prescriptionText,
+      status: "completed",
+      createdAt: new Date(),
+    };
+
+    const result = await prescriptionsCollection.insertOne(newPrescription);
+
+    // ২. appointmentsCollection-এ status আপডেট করে 'completed' করা
+    const filter = {
+      $or: [
+        { _id: appointmentId },
+        { _id: ObjectId.isValid(appointmentId) ? new ObjectId(appointmentId) : appointmentId }
+      ]
+    };
+
+    await appointmentsCollection.updateOne(filter, {
+      $set: { status: "completed" }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Prescription saved and appointment completed successfully!",
+      prescriptionId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Error creating prescription:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
     // POST API: Insert doctor data
     app.post('/api/doctors', async (req, res) => {
       try {
@@ -198,6 +299,7 @@ app.get('/api/appointments/user/:userId', async (req, res) => {
     res.status(500).json({ error: "Failed to insert appointment" });
   }
 });
+
 
 
 app.delete('/api/users/:id', async (req, res) => {
@@ -296,6 +398,108 @@ app.patch('/api/doctors/:id/verify', async (req, res) => {
   } catch (error) {
     console.error("Error updating status:", error);
     res.status(500).json({ error: "Failed to update verification status" });
+  }
+});
+
+// UPDATE Doctor Availability
+app.patch('/api/doctors/update-schedule/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { availableDays, availableSlots } = req.body;
+
+    const filter = { userId: userId.trim() };
+    const updateDoc = {
+      $set: {
+        availableDays: availableDays,
+        availableSlots: availableSlots,
+      },
+    };
+
+    const result = await doctorsCollection.updateOne(filter, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Doctor not found" });
+    }
+
+    res.status(200).json({ success: true, message: "Schedule updated successfully!" });
+  } catch (error) {
+    console.error("Error updating schedule:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
+
+// UPDATE Full Doctor Profile Details
+app.patch('/api/doctors/update-profile/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const {
+      doctorName,
+      specialization,
+      qualifications,
+      experience,
+      consultationFee,
+      hospitalName,
+      profileImage,
+      availableDays,
+      availableSlots,
+    } = req.body;
+
+    const filter = { userId: userId.trim() };
+    const updateDoc = {
+      $set: {
+        doctorName,
+        specialization,
+        qualifications,
+        experience,
+        consultationFee,
+        hospitalName,
+        profileImage,
+        availableDays,
+        availableSlots,
+        updatedAt: new Date(),
+      },
+    };
+
+    const result = await doctorsCollection.updateOne(filter, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Doctor not found" });
+    }
+
+    res.status(200).json({ success: true, message: "Profile updated successfully!" });
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
+
+// UPDATE Appointment Status
+app.patch('/api/appointments/status/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const filter = {
+      $or: [
+        { _id: id },
+        { _id: ObjectId.isValid(id) ? new ObjectId(id) : id }
+      ]
+    };
+
+    const updateDoc = {
+      $set: { status: status }
+    };
+
+    const result = await appointmentsCollection.updateOne(filter, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Appointment not found" });
+    }
+
+    res.status(200).json({ success: true, message: `Appointment ${status} successfully!` });
+  } catch (error) {
+    console.error("Error updating appointment status:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 });
     // Ping check
