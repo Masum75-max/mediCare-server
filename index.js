@@ -10,7 +10,7 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Database URI (সরাসরি পাসওয়ার্ড কোডে না রেখে .env ফাইলে রাখুন)
+
 const uri = process.env.MONGO_URI;
 
 const client = new MongoClient(uri, {
@@ -63,14 +63,14 @@ async function run() {
       res.send(reviews)
     })
 
-    // get api for featured doctors
+    
  
 app.get('/api/doctors/featured', async (req, res) => {
   try {
-    // ১. Query параметр থেকে limit রিসিভ করা (ডিফল্ট ৪)
+   
     const limit = parseInt(req.query.limit) || 4;
 
-    // ২. MongoDB থেকে সরাসরি প্রথম ৪টি ডাটা ফেচ করা
+  
     const doctors = await doctorsCollection.find({}).limit(limit).toArray();
 
     res.status(200).json(doctors);
@@ -91,7 +91,7 @@ app.get('/api/reviews/user/:userId', async (req, res) => {
 
     const cleanUserId = userId.trim();
 
-    // userId ডাটাবেজে String হিসেবে থাকলে direct filter, ObjectId হিসেবে থাকলে dynamic match
+    
     const filter = {
       $or: [
         { userId: cleanUserId },
@@ -101,7 +101,37 @@ app.get('/api/reviews/user/:userId', async (req, res) => {
 
     const reviews = await reviewsCollection
       .find(filter)
-      .sort({ createdAt: -1 }) // নতুন রিভিউগুলো আগে দেখাবে
+      .sort({ createdAt: -1 }) 
+      .toArray();
+
+    res.status(200).json(reviews);
+  } catch (error) {
+    console.error("Error fetching user reviews:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch reviews" });
+  }
+});
+
+app.get('/api/reviews/doctor/:doctorId', async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+
+    if (!doctorId) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const cleandoctorId = doctorId.trim();
+
+    
+    const filter = {
+      $or: [
+        { doctorId: cleandoctorId },
+        { doctorId: ObjectId.isValid(cleandoctorId) ? new ObjectId(cleandoctorId) : cleandoctorId }
+      ]
+    };
+
+    const reviews = await reviewsCollection
+      .find(filter)
+      .sort({ createdAt: -1 }) 
       .toArray();
 
     res.status(200).json(reviews);
@@ -113,22 +143,50 @@ app.get('/api/reviews/user/:userId', async (req, res) => {
 
     
    // GET API: Search & Filter Doctors
-app.get('/api/doctors', async (req, res) => {
+app.get('/api/doctorsSort', async (req, res) => {
   try {
-    const { search, specialization } = req.query;
-    let query = {};
+    const { search, specialization, sortBy } = req.query;
 
-    
-    if (search) {
-      query.doctorName = { $regex: search, $options: "i" };
+    console.log("Backend porjnto pouchaise:", { search, specialization, sortBy });
+
+    let matchQuery = {};
+
+    // 🔍 ১. doctorName অনুযায়ী সার্চ (Case-insensitive)
+    if (search && search.trim() !== "") {
+      matchQuery.doctorName = { $regex: search.trim(), $options: "i" };
     }
 
-    
+    // 🩺 ২. Specialization অনুযায়ী ফিল্টার
     if (specialization && specialization !== "All") {
-      query.specialization = specialization;
+      matchQuery.specialization = specialization.trim();
     }
 
-    const doctors = await doctorsCollection.find(query).toArray();
+    let pipeline = [{ $match: matchQuery }];
+
+    // 💰 ৩. Fee: Low to High (String "1000" -> Number 1000)
+    if (sortBy === "fee-low") {
+      pipeline.push({
+        $addFields: {
+          numericFee: { $toInt: "$consultationFee" }
+        }
+      });
+      pipeline.push({ $sort: { numericFee: 1 } });
+    }
+    // 🎓 ৪. Experience: High to Low (String "20 Years" -> Number 20)
+    else if (sortBy === "exp-high") {
+      pipeline.push({
+        $addFields: {
+          numericExperience: {
+            $toInt: {
+              $arrayElemAt: [{ $split: ["$experience", " "] }, 0]
+            }
+          }
+        }
+      });
+      pipeline.push({ $sort: { numericExperience: -1 } });
+    }
+
+    const doctors = await doctorsCollection.aggregate(pipeline).toArray();
     res.status(200).json(doctors);
   } catch (error) {
     console.error("Error fetching doctors:", error);
