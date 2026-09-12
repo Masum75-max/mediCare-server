@@ -1,12 +1,13 @@
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const express = require('express');
 const cors = require('cors');
+const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middleware
+
 app.use(cors());
 app.use(express.json());
 
@@ -20,6 +21,48 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   }
 });
+const JWKS = createRemoteJWKSet(
+   new URL(`${process.env.FRONT_END_URL}/api/auth/jwks`)
+)
+
+const verifyToken = async(req,res,next)=>{
+
+   const result = req?.headers.authorization
+
+   if(!result){
+      return res.status(401).json({message:"Unauthorized"})
+   }
+
+   const token = result.split(" ")[1]
+
+
+
+
+   if(!token){
+      return res.status(401).json({message:"Unauthorized"})
+   }
+
+   try{
+
+   
+
+      const {payload} = await jwtVerify(token,JWKS)
+      console.log(payload)
+       next()
+     
+   }
+
+   catch(error){
+
+    console.log("JWT ERROR",error)
+
+      return res.status(403).json({message:"Forbidden"})
+   }
+  
+  
+}
+
+
 
 async function run() {
   try {
@@ -32,12 +75,12 @@ async function run() {
     const reviewsCollection = database.collection("reviews");
     const prescriptionsCollection = database.collection("prescriptions")
 
-    // Root route for testing
+  
     app.get('/', (req, res) => {
       res.send("MediCare API Server Running...");
     });
 
-    // GET API: Fetch all users
+   
     app.get('/api/users', async (req, res) => {
       try {
         const users = await usersCollection.find().toArray();
@@ -47,17 +90,17 @@ async function run() {
         res.status(500).json({ error: "Failed to fetch users" });
       }
     });
-    // get api : fetch all doctors
+   
     app.get('/api/doctors',async (req,res)=>{
       const doctors = await doctorsCollection.find().toArray();
       res.send(doctors)
     })
-    // get api : fetch all appointments
+  
     app.get('/api/appointments',async (req,res)=>{
       const appointments = await appointmentsCollection.find().toArray();
       res.send(appointments)
     })
-    // get api : fetch all reviews
+   
     app.get('/api/reviews',async (req,res)=>{
       const reviews = await reviewsCollection.find().toArray();
       res.send(reviews)
@@ -80,7 +123,7 @@ app.get('/api/doctors/featured', async (req, res) => {
   }
 });
 
-// GET API: Fetch reviews by userId
+
 app.get('/api/reviews/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -142,7 +185,7 @@ app.get('/api/reviews/doctor/:doctorId', async (req, res) => {
 });
 
     
-   // GET API: Search & Filter Doctors
+  
 app.get('/api/doctorsSort', async (req, res) => {
   try {
     const { search, specialization, sortBy } = req.query;
@@ -151,19 +194,19 @@ app.get('/api/doctorsSort', async (req, res) => {
 
     let matchQuery = {};
 
-    // 🔍 ১. doctorName অনুযায়ী সার্চ (Case-insensitive)
+ 
     if (search && search.trim() !== "") {
       matchQuery.doctorName = { $regex: search.trim(), $options: "i" };
     }
 
-    // 🩺 ২. Specialization অনুযায়ী ফিল্টার
+  
     if (specialization && specialization !== "All") {
       matchQuery.specialization = specialization.trim();
     }
 
     let pipeline = [{ $match: matchQuery }];
 
-    // 💰 ৩. Fee: Low to High (String "1000" -> Number 1000)
+   
     if (sortBy === "fee-low") {
       pipeline.push({
         $addFields: {
@@ -172,7 +215,7 @@ app.get('/api/doctorsSort', async (req, res) => {
       });
       pipeline.push({ $sort: { numericFee: 1 } });
     }
-    // 🎓 ৪. Experience: High to Low (String "20 Years" -> Number 20)
+
     else if (sortBy === "exp-high") {
       pipeline.push({
         $addFields: {
@@ -194,9 +237,12 @@ app.get('/api/doctorsSort', async (req, res) => {
   }
 });
 
-// GET API: Fetch doctor by ID
-app.get('/api/doctors/:id', async (req, res) => {
+
+app.get('/api/doctors/:id', verifyToken, async (req, res) => {
   try {
+
+    
+    
     const doctorId = req.params.id;
     const doctor = await doctorsCollection.findOne({ _id: new ObjectId(doctorId) });
     if (!doctor) {
@@ -209,7 +255,7 @@ app.get('/api/doctors/:id', async (req, res) => {
   }
 });
 
-// GET API: Fetch appointment by userID
+
 app.get('/api/appointments/user/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -218,13 +264,12 @@ app.get('/api/appointments/user/:userId', async (req, res) => {
       return res.status(400).json({ error: "User ID is required" });
     }
 
-    // 🔴 userId অনুযায়ী ডাটাবেজ থেকে অ্যাপয়েন্টমেন্ট বের করা
-    // আপনার ডকুমেন্টে যদি ফিল্ডের নাম 'userId' বা 'applicantId' থাকে সে অনুযায়ী ফিল্টার হবে
+    
     const appointments = await appointmentsCollection
       .find({ 
         $or: [{ userId: userId }, { applicantId: userId }] 
       })
-      .sort({ _id: -1 }) // নতুন অ্যাপয়েন্টমেন্টগুলো আগে দেখানোর জন্য
+      .sort({ _id: -1 }) 
       .toArray();
 
     res.status(200).json(appointments);
@@ -241,13 +286,12 @@ app.get('/api/appointments/doctor/:doctorId', async (req, res) => {
       return res.status(400).json({ error: "User ID is required" });
     }
 
-    // 🔴 userId অনুযায়ী ডাটাবেজ থেকে অ্যাপয়েন্টমেন্ট বের করা
-    // আপনার ডকুমেন্টে যদি ফিল্ডের নাম 'userId' বা 'applicantId' থাকে সে অনুযায়ী ফিল্টার হবে
+   
     const appointments = await appointmentsCollection
       .find({ 
         $or: [{ doctorId: doctorId }, { applicantId: doctorId }] 
       })
-      .sort({ _id: -1 }) // নতুন অ্যাপয়েন্টমেন্টগুলো আগে দেখানোর জন্য
+      .sort({ _id: -1 }) 
       .toArray();
 
     res.status(200).json(appointments);
@@ -259,18 +303,16 @@ app.get('/api/appointments/doctor/:doctorId', async (req, res) => {
 
 
 
-// get api: get Doctor by userId
 
-// GET Doctor details by userId
 app.get('/api/doctors/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     console.log("ASCE TO:", userId);
 
-    // Trim করে অতিরিক্ত স্পেস ফেলে দেওয়া
+    
     const cleanUserId = userId ? userId.trim() : "";
 
-    // Exact String match + Case/Whitespace insensitive Regex
+  
     const doctor = await doctorsCollection.findOne({
       userId: { $regex: `^${cleanUserId}$`, $options: "i" }
     });
@@ -288,7 +330,7 @@ app.get('/api/doctors/user/:userId', async (req, res) => {
   }
 });
 
-// POST /api/prescriptions
+
 app.post('/api/prescriptions', async (req, res) => {
 
   console.log("Hit khaise")
@@ -299,7 +341,6 @@ app.post('/api/prescriptions', async (req, res) => {
       return res.status(400).json({ success: false, message: "Required fields are missing" });
     }
 
-    // ১. prescriptionCollection-এ ডাটা ইনসার্ট করা
     const newPrescription = {
       appointmentId,
       doctorId,
@@ -311,7 +352,7 @@ app.post('/api/prescriptions', async (req, res) => {
 
     const result = await prescriptionsCollection.insertOne(newPrescription);
 
-    // ২. appointmentsCollection-এ status আপডেট করে 'completed' করা
+    
     const filter = {
       $or: [
         { _id: appointmentId },
@@ -334,7 +375,7 @@ app.post('/api/prescriptions', async (req, res) => {
   }
 });
 
-// POST API: Insert Review
+
 app.post('/api/reviews', async (req, res) => {
   try {
     const { appointmentId, doctorId, userId, rating, reviewText } = req.body;
@@ -359,7 +400,7 @@ app.post('/api/reviews', async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 });
-    // POST API: Insert doctor data
+  
     app.post('/api/doctors', async (req, res) => {
       try {
         const doctorData = req.body;
@@ -370,7 +411,7 @@ app.post('/api/reviews', async (req, res) => {
         res.status(500).json({ error: "Failed to insert doctor" });
       }
     });
-    // POST API: Insert appointment data
+   
    app.post('/api/appointments', async (req, res) => {
   try {
     const appointmentData = req.body;
@@ -381,7 +422,7 @@ app.post('/api/reviews', async (req, res) => {
       return res.status(400).json({ error: "Missing required appointment fields" });
     }
 
-    // ডুপ্লিকেট এন্ট্রি আটকানোর জন্য চেক
+ 
     const existingAppointment = await appointmentsCollection.findOne({
       $or: [{ userId: userId }, { applicantId: userId }],
       doctorId,
@@ -396,10 +437,7 @@ app.post('/api/reviews', async (req, res) => {
       });
     }
 
-    // DELETE API: Delete user by ID
-
-
-    // স্ট্যাটাস ও টাইমস্ট্যাম্পসহ ডাটা ইনসার্ট
+   
     const finalPayload = {
       ...appointmentData,
       userId: userId,
@@ -462,7 +500,7 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// DELETE API: Delete Review by ID
+
 app.delete('/api/reviews/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -485,7 +523,7 @@ app.delete('/api/reviews/:id', async (req, res) => {
   }
 });
 
-// DELETE API: Delete Doctor by ID
+
 app.delete('/api/doctors/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -508,12 +546,12 @@ app.delete('/api/doctors/:id', async (req, res) => {
 });
 
 
-// edit related apis 
+
 app.patch('/api/doctors/:id/verify', async (req, res) => {
   console.log("CAll hoccha")
   try {
     const id = req.params.id;
-    const { verificationStatus } = req.body; // e.g., "true" or "false"
+    const { verificationStatus } = req.body; 
 
     if (!id || !ObjectId.isValid(id)) {
       return res.status(400).json({ error: "Invalid Doctor ID" });
@@ -522,7 +560,7 @@ app.patch('/api/doctors/:id/verify', async (req, res) => {
     const filter = { _id: new ObjectId(id) };
     const updateDoc = {
       $set: {
-        verificationStatus: String(verificationStatus), // String হিসেবে সেভ হবে
+        verificationStatus: String(verificationStatus), 
       },
     };
 
@@ -539,7 +577,7 @@ app.patch('/api/doctors/:id/verify', async (req, res) => {
   }
 });
 
-// UPDATE Doctor Availability
+
 app.patch('/api/doctors/update-schedule/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -566,7 +604,7 @@ app.patch('/api/doctors/update-schedule/:userId', async (req, res) => {
   }
 });
 
-// UPDATE Full Doctor Profile Details
+
 app.patch('/api/doctors/update-profile/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -611,7 +649,7 @@ app.patch('/api/doctors/update-profile/:userId', async (req, res) => {
   }
 });
 
-// PATCH API: Reschedule/Update Appointment Date and Time
+
 app.patch('/api/appointments/reschedule/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -645,7 +683,7 @@ app.patch('/api/appointments/reschedule/:id', async (req, res) => {
   }
 });
 
-// UPDATE Appointment Status
+
 app.patch('/api/appointments/status/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -709,7 +747,6 @@ app.patch('/api/reviews/:id', async (req, res) => {
   }
 });
 
-    // Ping check
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. Connected to MongoDB!");
   } catch (error) {
@@ -719,7 +756,7 @@ app.patch('/api/reviews/:id', async (req, res) => {
 
 run().catch(console.dir);
 
-// ⚠️ বাধ্যতামূলক: Express Server Start করা
+
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
