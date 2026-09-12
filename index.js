@@ -747,7 +747,7 @@ app.patch('/api/reviews/:id', async (req, res) => {
   }
 });
 
-    await client.db("admin").command({ ping: 1 });
+   // await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. Connected to MongoDB!");
   } catch (error) {
     console.error("MongoDB Connection Error:", error);
@@ -757,6 +757,3 @@ app.patch('/api/reviews/:id', async (req, res) => {
 run().catch(console.dir);
 
 
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
-});
